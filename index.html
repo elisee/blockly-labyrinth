@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Blockly</title>
+    <meta charset="utf8">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            background: #012345;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            font-family: sans-serif;
+        }
+
+        .header {
+            background: #eee;
+            padding: 1em;
+            width: 1080px;
+        }
+
+        p {
+            line-height: 1.5;
+        }
+
+        p:not(:last-of-type) {
+            margin-bottom: 1em;
+        }
+
+        .main {
+            display: flex;
+        }
+
+        .main>.left>.state {
+            background: #888;
+            padding: 1em;
+            display: flex;
+            align-items: center;
+            width: 600px;
+        }
+
+        #status {
+            flex: 1;
+            padding: 0.5em;
+            font-weight: bold;
+        }
+
+        #execute {
+            padding: 1em;
+            color: #000;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        #blockly {
+            width: 600px;
+            height: 480px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <p>Construisez un programme pour amener le robot bleu vers la sortie verte en évitant les trous rouges !<br>
+                Le robot a une quantité de mémoire limitée, il ne peut contenir que 8 instructions (pièces de puzzle).
+            </p>
+        </div>
+        <div class="main">
+            <div class="left">
+                <div id="blockly"></div>
+
+                <xml id="toolbox" hidden>
+                    <block type="forward"></block>
+                    <block type="turn_cw"></block>
+                    <block type="turn_ccw"></block>
+                    <block type="repeat"></block>
+                </xml>
+
+                <xml id="startBlocks" hidden>
+                    <block type="forward"></block>
+                </xml>
+
+                <div class="state">
+                    <button id="execute">Activer le robot</button>
+                    <div id="status"></div>
+                </div>
+            </div>
+
+            <canvas id="canvas" width="480" height="480"></canvas>
+        </div>
+    </div>
+
+    <script src="blockly_compressed.js"></script>
+    <!-- <script src="blocks_compressed.js"></script> -->
+    <script src="msg_js_fr.js"></script>
+
+    <script>
+        Blockly.Blocks["forward"] = {
+            init: function () {
+                this.appendDummyInput()
+                    .appendField("Avancer");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(230);
+                this.setTooltip("");
+                this.setHelpUrl("");
+            }
+        };
+
+        Blockly.Blocks["turn_ccw"] = {
+            init: function () {
+                this.appendDummyInput()
+                    .appendField("Tourner sens anti-horaire");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(120);
+            }
+        };
+
+        Blockly.Blocks["turn_cw"] = {
+            init: function () {
+                this.appendDummyInput()
+                    .appendField("Tourner sens horaire");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(60);
+            }
+        };
+
+        Blockly.Blocks["repeat"] = {
+            init: function () {
+                this.appendStatementInput("content")
+                    .setCheck(null)
+                    .appendField("Répéter")
+                    .appendField(new Blockly.FieldNumber(0, 3, 10, 1), "count");
+                this.setPreviousStatement(true, null);
+                this.setNextStatement(true, null);
+                this.setColour(330);
+            }
+        }
+
+        const workspace = Blockly.inject("blockly", {
+            toolbox: document.getElementById("toolbox"),
+            grid:
+            {
+                spacing: 20,
+                length: 3,
+                colour: '#ccc',
+                snap: true
+            },
+            trashcan: true
+        });
+
+        Blockly.Xml.domToWorkspace(document.getElementById("startBlocks"), workspace);
+
+        const canvas = document.getElementById("canvas");
+        const canvasContext = canvas.getContext("2d");
+
+        const tileSize = 48;
+        const labyrinthWidth = 10;
+        const labyrinthHeight = 10;
+
+        const startPosition = [6, 8];
+        let robotPosition = [6, 8];
+        let robotDirection = 0;
+
+        const labyrinth = [
+            0, 0, 4, 4, 4, 0, 0, 0, 0, 0,
+            0, 0, 4, 2, 4, 0, 0, 0, 0, 0,
+            0, 0, 4, 1, 4, 0, 0, 0, 0, 0,
+            0, 4, 4, 1, 4, 4, 3, 4, 4, 0,
+            0, 3, 1, 1, 1, 1, 1, 1, 3, 0,
+            0, 4, 4, 4, 4, 4, 1, 4, 4, 0,
+            0, 0, 0, 0, 0, 4, 1, 4, 0, 0,
+            0, 0, 0, 0, 0, 4, 1, 4, 0, 0,
+            0, 0, 0, 0, 0, 4, 1, 4, 0, 0,
+            0, 0, 0, 0, 0, 4, 4, 4, 0, 0,
+        ];
+
+        const sprites = new Image();
+        sprites.onload = () => animate();
+        sprites.src = "sprites.png";
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            canvasContext.fillStyle = "#234567";
+            canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+
+            for (let j = 0; j < labyrinthHeight; j++) {
+                for (let i = 0; i < labyrinthWidth; i++) {
+                    const tile = labyrinth[j * labyrinthWidth + i];
+                    if (tile == 0) continue;
+
+                    canvasContext.drawImage(sprites,
+                        (tile - 1) * tileSize, 0, tileSize, tileSize,
+                        i * tileSize, j * tileSize, tileSize, tileSize);
+                }
+            }
+
+            canvasContext.drawImage(sprites,
+                robotDirection * tileSize, 48, tileSize, tileSize,
+                robotPosition[0] * tileSize, robotPosition[1] * tileSize, tileSize, tileSize);
+        }
+
+        document.getElementById("execute").addEventListener("click", (event) => {
+            event.preventDefault();
+
+            if (workspace.options.readOnly) return;
+            workspace.options.readOnly = true;
+
+            const rootContext = { actions: [] };
+            const blocks = workspace.getTopBlocks(/* ordered */ true);
+            for (const block of blocks) processBlock(block, rootContext);
+            console.log(rootContext.actions);
+
+            function processBlock(block, context) {
+                switch (block.type) {
+                    case "repeat":
+                        const count = block.getFieldValue("count");
+
+                        const contentFirstBlock = block.getInputTargetBlock("content");
+                        if (contentFirstBlock != null) {
+                            const repeatContext = { actions: [] };
+                            processBlock(contentFirstBlock, repeatContext);
+                            for (let i = 0; i < count; i++) context.actions.push(...repeatContext.actions);
+                        }
+                        break;
+                    default:
+                        context.actions.push({ name: block.type, blockId: block.id });
+                }
+
+                if (block.nextConnection != null) {
+                    const nextBlock = block.nextConnection.targetBlock();
+                    if (nextBlock != null) processBlock(block.nextConnection.targetBlock(), context);
+                }
+            }
+
+            document.getElementById("status").textContent = "Le robot exécute son programme...";
+
+            robotPosition = startPosition.slice(0);
+            robotDirection = 0;
+
+            let currentActionIndex = -1;
+            const executeIntervalId = setInterval(step, 400);
+
+            function end(status) {
+                document.getElementById("status").textContent = status;
+                workspace.options.readOnly = false;
+                workspace.highlightBlock(null);
+                clearInterval(executeIntervalId);
+            }
+
+            function step() {
+                currentActionIndex++;
+
+                if (currentActionIndex == rootContext.actions.length) {
+                    end("Le robot n'a pas atteint la sortie.");
+                    return;
+                }
+
+                const action = rootContext.actions[currentActionIndex];
+                workspace.highlightBlock(action.blockId);
+
+                switch (action.name) {
+                    case "forward":
+                        const newPosition = robotPosition.slice(0);
+
+                        switch (robotDirection) {
+                            case 0: newPosition[1]--; break; // Up
+                            case 1: newPosition[0]++; break; // Right
+                            case 2: newPosition[1]++; break; // Down
+                            case 3: newPosition[0]--; break; // Left
+                        }
+
+                        const tile = labyrinth[newPosition[1] * labyrinthWidth + newPosition[0]];
+
+                        switch (tile) {
+                            case 1:
+                                robotPosition = newPosition;
+                                break;
+                            case 2:
+                                robotPosition = newPosition;
+                                end("Victoire ! Le robot a atteint la sortie. Le code secret est 7894");
+                                return;
+
+                            case 3:
+                                robotPosition = newPosition;
+                                end("Le robot est tombé dans un trou ! Essayez encore.");
+                                return;
+
+                            default:
+                            // Wall or void
+                        }
+
+                        break;
+                    case "turn_cw":
+                        robotDirection = (robotDirection + 1) % 4;
+                        break;
+                    case "turn_ccw":
+                        robotDirection = (robotDirection + 4 - 1) % 4;
+                        break;
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
