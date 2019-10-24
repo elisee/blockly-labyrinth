@@ -45,7 +45,7 @@
 
         .main>.left>.state {
             background: #888;
-            padding: 1em;
+            padding: 0.75em;
             display: flex;
             align-items: center;
             width: 600px;
@@ -53,13 +53,12 @@
 
         #status {
             flex: 1;
-            padding: 0.5em;
+            padding: 0 0.5em;
             font-weight: bold;
         }
 
         #execute {
             padding: 1em;
-            color: #000;
             font-weight: bold;
             text-transform: uppercase;
         }
@@ -75,7 +74,7 @@
     <div class="container">
         <div class="header">
             <p>Construisez un programme pour amener le robot bleu vers la sortie verte en évitant les trous rouges !<br>
-                Le robot a une quantité de mémoire limitée, il ne peut contenir que 8 instructions (pièces de puzzle).
+                Le robot a une quantité de mémoire limitée, il ne peut contenir que 8 blocs d'instruction.
             </p>
         </div>
         <div class="main">
@@ -94,7 +93,7 @@
                 </xml>
 
                 <div class="state">
-                    <button id="execute">Activer le robot</button>
+                    <button id="execute">Allumer le robot</button>
                     <div id="status"></div>
                 </div>
             </div>
@@ -176,6 +175,7 @@
         const startPosition = [6, 8];
         let robotPosition = [6, 8];
         let robotDirection = 0;
+        let robotAwake = false;
 
         const labyrinth = [
             0, 0, 4, 4, 4, 0, 0, 0, 0, 0,
@@ -212,15 +212,21 @@
             }
 
             canvasContext.drawImage(sprites,
-                robotDirection * tileSize, 48, tileSize, tileSize,
+                robotDirection * tileSize, 48 * (robotAwake ? 2 : 1), tileSize, tileSize,
                 robotPosition[0] * tileSize, robotPosition[1] * tileSize, tileSize, tileSize);
         }
 
-        document.getElementById("execute").addEventListener("click", (event) => {
+        const executeButton = document.getElementById("execute");
+
+        executeButton.addEventListener("click", (event) => {
             event.preventDefault();
 
-            if (workspace.options.readOnly) return;
+            if (robotAwake) return;
+            robotAwake = true;
             workspace.options.readOnly = true;
+            executeButton.disabled = true;
+
+            let blockCount = 0;
 
             const rootContext = { actions: [] };
             const blocks = workspace.getTopBlocks(/* ordered */ true);
@@ -228,6 +234,8 @@
             console.log(rootContext.actions);
 
             function processBlock(block, context) {
+                blockCount++;
+
                 switch (block.type) {
                     case "repeat":
                         const count = block.getFieldValue("count");
@@ -249,6 +257,11 @@
                 }
             }
 
+            if (blockCount > 8) {
+                end("Le robot ne peut contenir que 8 blocs.<br>Retirez au moins " + (blockCount - 8) + " blocs !");
+                return;
+            }
+
             document.getElementById("status").textContent = "Le robot exécute son programme...";
 
             robotPosition = startPosition.slice(0);
@@ -258,10 +271,17 @@
             const executeIntervalId = setInterval(step, 400);
 
             function end(status) {
-                document.getElementById("status").textContent = status;
-                workspace.options.readOnly = false;
+                document.getElementById("status").innerHTML = status;
                 workspace.highlightBlock(null);
                 clearInterval(executeIntervalId);
+
+                setTimeout(() => {
+                    robotAwake = false;
+                    workspace.options.readOnly = false;
+                    executeButton.disabled = false;
+                    robotPosition = startPosition.slice(0);
+                    robotDirection = 0;
+                }, 800);
             }
 
             function step() {
@@ -294,7 +314,7 @@
                                 break;
                             case 2:
                                 robotPosition = newPosition;
-                                end("Victoire ! Le robot a atteint la sortie. Le code secret est 7894");
+                                end("Victoire ! Le robot a atteint la sortie.<br>Le code secret est 7894");
                                 return;
 
                             case 3:
